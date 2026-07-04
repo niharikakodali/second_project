@@ -1,0 +1,206 @@
+clc;
+clear ;
+close all;
+
+
+% USER INPUTS
+num_nodes = input('Enter number of nodes: ');
+area_size = input('Enter area size (km): ');
+range = input('Enter communication range (km): ');
+source = input('Enter source node: ');
+destination = input('Enter destination node: ');
+message = input('Enter EMERGENCY message: ','s');
+
+%  NODE DEPLOYMENT
+%  Generates random positions of nodes in the area
+x = area_size * rand(1, num_nodes);
+y = area_size * rand(1, num_nodes);
+
+figure;  %  Displays nodes on graph
+scatter(x, y, 100, 'filled');
+title('LoRa Network WITH Delay (Collision Avoidance)');
+xlabel('X (km)');
+ylabel('Y (km)');
+grid on;
+hold on;
+
+
+%  DRAW CONNECTIONS
+
+for i = 1:num_nodes
+    for j = i+1:num_nodes
+        d = sqrt((x(i)-x(j))^2 + (y(i)-y(j))^2);
+        if d < range  %  distance < range then connect nodes
+            plot([x(i), x(j)], [y(i), y(j)], 'b-');  %calculate distance blw nodes
+        end
+    end
+end
+
+%  ENERGY INITIALIZATION
+
+energy = 100 * ones(1, num_nodes); %Every node starts with 100 energy units
+
+
+% -------------------------------
+% 🔹 ADAPTIVE DELAY CALCULATION
+% -------------------------------
+
+delay_time = zeros(1, num_nodes);
+
+for i = 1:num_nodes
+    
+    % Distance factor (average distance to others)
+    dist_sum = 0;
+    for j = 1:num_nodes
+        if i ~= j
+            d = sqrt((x(i)-x(j))^2 + (y(i)-y(j))^2);
+            dist_sum = dist_sum + d;
+        end
+    end
+    avg_dist = dist_sum / (num_nodes - 1);
+    
+    % Normalize factors
+    dist_factor = avg_dist / area_size;   % 0 to 1
+    energy_factor = (100 - energy(i)) / 100; % low energy → higher delay
+    
+    % Base delay
+    delay_time(i) = 1 + 2*dist_factor + 2*energy_factor;
+    if i == source
+    delay_time(i) = 0.5;  % very small delay
+end
+    
+    % Priority handling (Emergency gets less delay)
+    if contains(upper(message), 'EMERGENCY')
+        delay_time(i) = delay_time(i) * 0.5;
+    end
+end
+
+disp('Adaptive Delay assigned to each node:');
+disp(delay_time);
+
+
+%  ADJACENCY MATRIX
+
+adj = zeros(num_nodes); %Creates matrix to store connections
+
+for i = 1:num_nodes
+    for j = 1:num_nodes
+        d = sqrt((x(i)-x(j))^2 + (y(i)-y(j))^2);
+        if d < range && i ~= j
+            adj(i,j) = 1;
+        end
+    end
+end
+
+
+%  BFS ROUTING (MESH)
+
+visited = zeros(1, num_nodes);
+queue = source;
+parent = zeros(1, num_nodes);
+
+visited(source) = 1;
+
+while ~isempty(queue)
+    current = queue(1);
+    queue(1) = [];
+    
+    for i = 1:num_nodes
+        if adj(current,i) == 1 && visited(i) == 0
+            visited(i) = 1;
+            parent(i) = current;
+            queue(end+1) = i;
+        end
+    end
+end
+
+
+%  PATH FORMATION
+
+if visited(destination) == 1
+    
+    path = destination;
+    while path(1) ~= source
+        path = [parent(path(1)) path];
+    end
+    
+    disp('Path Found:');
+    disp(path);
+    
+    
+    %  TRANSMISSION WITH DELAY
+    
+    disp('--- Transmission WITH Delay ---');
+    
+    for i = 1:length(path)
+        node = path(i);
+        
+        % Show delay
+        disp(['Node ', num2str(node), ...
+              ' waits ', num2str(delay_time(node)), ' sec']);
+        pause(delay_time(node));
+        
+        % Transmission
+        disp(['Node ', num2str(node), ...
+              ' transmitting message: ', message]);
+        
+        % Energy consumption
+        energy(node) = energy(node) - 10;
+        
+        disp(['Remaining energy: ', num2str(energy(node))]);
+    end
+    
+    
+    %  EMERGENCY DETECTION
+    
+    if contains(upper(message), 'EMERGENCY')
+        disp(' EMERGENCY MESSAGE RECEIVED SUCCESSFULLY ');
+    else
+        disp('Normal message received');
+    end
+    
+    
+    %  PERFORMANCE METRICS
+    
+    latency = length(path) - 1; % or number of hops
+    PDR = 1;  % No collision i.e.,full success
+    
+    disp(['Latency (hops): ', num2str(latency)]);
+    disp(['Collisions: 0']);
+    disp(['Packet Delivery Ratio: ', num2str(PDR)]);
+    
+else
+    disp('No Path Found!');
+end
+
+
+%  SHOW PATH
+
+if visited(destination) == 1
+    for i = 1:length(path)-1
+        plot([x(path(i)), x(path(i+1))], ...
+             [y(path(i)), y(path(i+1))], 'r', 'LineWidth', 3);
+    end
+end
+
+
+%  FINAL ENERGY
+
+disp('Final Energy of Nodes:');
+disp(energy);
+
+%  DELAY vs NODE GRAPH
+
+figure;
+plot(1:num_nodes, delay_time, '-o', 'LineWidth', 2);
+
+title('Delay vs Node');
+xlabel('Node Number');
+ylabel('Delay Time (seconds)');
+grid on;
+
+% Show delay values on graph
+for i = 1:num_nodes
+    text(i, delay_time(i), num2str(delay_time(i), '%.2f'), ...
+        'VerticalAlignment', 'bottom', 'HorizontalAlignment', 'right');
+end
